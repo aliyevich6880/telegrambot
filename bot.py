@@ -3,7 +3,7 @@ import os
 import random
 import sqlite3
 from dotenv import load_dotenv
-from telegram import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup
 from telegram.error import Unauthorized
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
@@ -63,14 +63,156 @@ def build_word_keyboard():
     return InlineKeyboardMarkup(buttons)
 
 
+JOIN_BUTTON = '➕ Qo‘shish'
+STOP_BUTTON = '⛔ Stop'
+PROFILE_BUTTON = '👤 Profil'
+BACK_BUTTON = '🔙 Orqaga'
+GROUP_MENU_BUTTONS = ['👀 So‘zni ko‘rish', '⏭ Yangi so‘z', '📂 Kategoriya', '📜 Menyu', JOIN_BUTTON, STOP_BUTTON, PROFILE_BUTTON, BACK_BUTTON]
+
+
 def build_group_keyboard():
     buttons = [
-        [InlineKeyboardButton('👀 So‘zni ko‘rish', callback_data='show_word')],
-        [InlineKeyboardButton('⏭ Yangi so‘z', callback_data='next_word')],
-        [InlineKeyboardButton('📂 Kategoriya', callback_data='choose_category')],
-        [InlineKeyboardButton('📜 Menyu', callback_data='menu')],
+        ['👀 So‘zni ko‘rish', '⏭ Yangi so‘z'],
+        ['📂 Kategoriya', '📜 Menyu'],
+        [JOIN_BUTTON, STOP_BUTTON],
+        [PROFILE_BUTTON, BACK_BUTTON],
+    ]
+    return ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=False)
+
+
+def build_join_keyboard(bot_username):
+    url_group = f'https://t.me/{bot_username}?startgroup=true'
+    url_channel = f'https://t.me/{bot_username}?startchannel=true'
+    buttons = [
+        [InlineKeyboardButton('Guruhga qo‘shish', url=url_group)],
+        [InlineKeyboardButton('Kanalga qo‘shish', url=url_channel)],
     ]
     return InlineKeyboardMarkup(buttons)
+
+
+def get_user_name(user):
+    return user.full_name or user.first_name or user.username or str(user.id)
+
+
+def update_state_player_name(state, user):
+    if 'player_names' not in state:
+        state['player_names'] = {}
+    state['player_names'][user.id] = get_user_name(user)
+
+
+def format_scoreboard(state):
+    scores = state.get('scores', {})
+    if not scores:
+        return 'Hozircha ballar yo‘q.'
+    lines = []
+    for user_id, score in sorted(scores.items(), key=lambda x: -x[1]):
+        name = state.get('player_names', {}).get(user_id, f'User {user_id}')
+        lines.append(f'{name}: {score}')
+    return 'Ballar:\n' + '\n'.join(lines)
+
+
+def is_admin_or_owner(chat, user):
+    if OWNER_ID and user.id == OWNER_ID:
+        return True
+    try:
+        member = chat.get_member(user.id)
+        return member.status in ['administrator', 'creator']
+    except Exception:
+        return False
+
+
+def find_hosted_group(user_id):
+    for cid, state in games.items():
+        if state.get('host_id') == user_id:
+            return cid
+    return None
+
+
+def handle_group_button_text(update, context):
+    text = (update.message.text or '').strip()
+    chat = update.effective_chat
+    user = update.effective_user
+    if chat.type == 'private':
+        return False
+
+    if text == '👀 So‘zni ko‘rish':
+        update.message.reply_text(
+            "Faqat boshlovchi shaxsiy chatda /setword <so'z> yoki /useword <id> orqali so'z o'rnatishi mumkin.",
+            reply_markup=build_group_keyboard()
+        )
+        return True
+
+    if text == '⏭ Yangi so‘z':
+        update.message.reply_text(
+            "Yangi so'z uchun boshlovchi shaxsiy chatda /setword yoki /useword dan foydalanishi kerak.",
+            reply_markup=build_group_keyboard()
+        )
+        return True
+
+    if text == '📂 Kategoriya':
+        update.message.reply_text(
+            "Toifa tanlang:",
+            reply_markup=build_category_keyboard()
+        )
+        return True
+
+    if text == '📜 Menyu':
+        update.message.reply_text(
+            "Asosiy bot menyusi: Guruhda /host bering, so'ng /category yoki /setword bilan davom eting.",
+            reply_markup=build_group_keyboard()
+        )
+        return True
+
+    if text == JOIN_BUTTON:
+        bot_username = context.bot.username or ''
+        if bot_username:
+            update.message.reply_text(
+                "Botni guruhga yoki kanalingizga qo‘shish uchun quyidagi tugmalardan foydalaning:",
+                reply_markup=build_join_keyboard(bot_username)
+            )
+        else:
+            update.message.reply_text(
+                "Botni guruhga yoki kanalingizga qo‘shish uchun @botusername orqali qidiring va uni qo‘shing."
+            )
+        return True
+
+    if text == STOP_BUTTON:
+        if not is_admin_or_owner(chat, user):
+            update.message.reply_text("Faqat adminlar yoki bot egasi o'yinni to'xtatishi mumkin.")
+            return True
+        if chat.id not in games:
+            update.message.reply_text("Raund yo'q.")
+            return True
+        state = games[chat.id]
+        rounds = state.get('rounds', 0)
+        update.message.reply_text(
+            f"Stop berildi. O'yin tugadi. Jami {rounds} round bo'lib o'tdi.\n{format_scoreboard(state)}"
+        )
+        games.pop(chat.id, None)
+        return True
+
+    if text == PROFILE_BUTTON:
+        if chat.id not in games:
+            update.message.reply_text("Hozircha o'yin boshlanmagan.")
+            return True
+        state = games[chat.id]
+        host_name = state.get('player_names', {}).get(state.get('host_id'), 'Noma'lum')
+        update.message.reply_text(
+            f"Profil:\nBoshlovchi: {host_name}\n"
+            f"Roundlar: {state.get('rounds', 0)}\n"
+            f"{format_scoreboard(state)}",
+            reply_markup=build_group_keyboard()
+        )
+        return True
+
+    if text == BACK_BUTTON:
+        update.message.reply_text(
+            "Asosiy menyuga qaytildi.",
+            reply_markup=build_group_keyboard()
+        )
+        return True
+
+    return False
 
 
 def start_private(update, context):
@@ -93,10 +235,19 @@ def host(update, context):
     if chat.type == 'private':
         update.message.reply_text("Iltimos bu buyruqni guruhda ishlating.")
         return
-    games[chat.id] = {'host_id': user.id, 'category': None, 'word': None, 'revealed_user_id': None}
+    games[chat.id] = {
+        'host_id': user.id,
+        'category': None,
+        'word': None,
+        'revealed_user_id': None,
+        'scores': {},
+        'rounds': 0,
+        'player_names': {user.id: get_user_name(user)},
+        'last_round_result': None,
+    }
     update.message.reply_text(
         f"{user.first_name} siz bu guruh uchun boshlovchi bo'ldingiz. Endi toifa tanlang.\n"
-        "Bot menyusi quyidagicha:",
+        "Bot menyusi pastda paydo bo‘ladi.",
         reply_markup=build_group_keyboard()
     )
 
@@ -123,9 +274,6 @@ def setword(update, context):
     # must be in private chat and user must be host of some group
     chat = update.effective_chat
     user = update.effective_user
-    if OWNER_ID and user.id != OWNER_ID:
-        update.message.reply_text("Faqat bot egasi maxfiy so'zni o'rnatishi mumkin.")
-        return
     if chat.type != 'private':
         update.message.reply_text("Iltimos bu buyruqni shaxsiy chatda yuboring: /setword <so'z>")
         return
@@ -136,7 +284,7 @@ def setword(update, context):
             target_chat_id = cid
             break
     if not target_chat_id:
-        update.message.reply_text("Siz hozir hech qanday guruhda boshlovchi emassiz. Guruhda /host buyrug'ini bosing.")
+        update.message.reply_text("Siz hozir hech qanday guruhda boshlovchi emassiz. Avval guruhda /host bering yoki avval o'yinlarda g'olib bo'ling.")
         return
     if len(context.args) == 0:
         word = random.choice(DEFAULT_WORDS)
@@ -236,9 +384,6 @@ def removeword(update, context):
 def useword(update, context):
     chat = update.effective_chat
     user = update.effective_user
-    if OWNER_ID and user.id != OWNER_ID:
-        update.message.reply_text("Faqat bot egasi saqlangan so'zni tanlashi mumkin.")
-        return
     if chat.type != 'private':
         update.message.reply_text("Iltimos shaxsiyda /useword <id> bilan so'zni tanlang.")
         return
@@ -314,11 +459,15 @@ def cancel(update, context):
     if chat.id not in games:
         update.message.reply_text("Raund mavjud emas.")
         return
-    if games[chat.id].get('host_id') != user.id:
-        update.message.reply_text("Faqat boshlovchi raundni bekor qilishi mumkin.")
+    state = games[chat.id]
+    if state.get('host_id') != user.id and not is_admin_or_owner(chat, user):
+        update.message.reply_text("Faqat boshlovchi yoki admin bu raundni bekor qilishi mumkin.")
         return
+    rounds = state.get('rounds', 0)
     games.pop(chat.id, None)
-    update.message.reply_text("Raund bekor qilindi va o'yin holati tozalandi.")
+    update.message.reply_text(
+        f"Raund bekor qilindi. Jami {rounds} round bo'lib o'tdi.\n{format_scoreboard(state)}"
+    )
 
 
 def button_handler(update, context):
@@ -384,21 +533,54 @@ def handle_group_message(update, context):
     text = (update.message.text or '').strip()
     if not text:
         return
+    if text in GROUP_MENU_BUTTONS:
+        return
     # If the revealer accidentally sends the word, ignore their guesses
     if state.get('revealed_user_id') and user.id == state.get('revealed_user_id'):
         return
     if text.lower() == state['word'].lower():
-        update.message.reply_text(f"Tabriklaymiz {user.first_name}! Siz so'zni topdingiz: {state['word']}")
-        # clear the game state for this chat
-        games.pop(chat.id, None)
+        winner_name = get_user_name(user)
+        update_state_player_name(state, user)
+        state.setdefault('scores', {})
+        state['scores'][user.id] = state['scores'].get(user.id, 0) + 1
+        state['rounds'] = state.get('rounds', 0) + 1
+        state['last_round_result'] = f"Round {state['rounds']} tugadi. G'olib: {winner_name} (+1 ball)."
+        state['previous_winner'] = user.id
+        state['host_id'] = user.id
+        state['word'] = None
+        state['revealed_user_id'] = None
+        update.message.reply_text(
+            f"{state['last_round_result']}\nKeyingi round uchun boshlovchi {winner_name} bo'ldi. /setword yordamida yangi so'z o'rnating.\n{format_scoreboard(state)}",
+            reply_markup=build_group_keyboard()
+        )
+        return
 
 def help_cmd(update, context):
     update.message.reply_text(
         "Buyruqlar: /host - boshlovchi bo'ling; /category <nom> - toifa;\n"
         "/addword <so'z> - so'z qo'shish; /listwords - so'zlarni ko'rish;\n"
         "/removeword <id> - so'z o'chirish; /setword <so'z> - maxfiy so'z o'rnatish;\n"
-        "/reveal - javobga yuborilgan xabarga so'zni ko'rsatish; /cancel - raundni bekor qilish."
+        "/useword <id> - saqlangan so'zni tanlash (boshlovchi uchun);\n"
+        "/reveal - javobga yuborilgan xabarga so'zni ko'rsatish; /cancel - raundni bekor qilish;\n"
+        "/profile - o'yinchilar ballari va roundlar haqida ma'lumot."
     )
+
+def profile_cmd(update, context):
+    chat = update.effective_chat
+    if chat.type == 'private':
+        update.message.reply_text("/profile faqat guruhda ishlaydi.")
+        return
+    if chat.id not in games:
+        update.message.reply_text("Hozircha o'yin boshlanmagan.")
+        return
+    state = games[chat.id]
+    host_name = state.get('player_names', {}).get(state.get('host_id'), 'Noma'lum')
+    update.message.reply_text(
+        f"Profil:\nBoshlovchi: {host_name}\n"
+        f"Roundlar: {state.get('rounds', 0)}\n"
+        f"{format_scoreboard(state)}"
+    )
+
 
 def main():
     updater = Updater(TOKEN, use_context=True)
@@ -408,11 +590,13 @@ def main():
     dp.add_handler(CommandHandler('host', host))
     dp.add_handler(CommandHandler('category', category, pass_args=True))
     dp.add_handler(CommandHandler('setword', setword, pass_args=True))
+    dp.add_handler(CommandHandler('useword', useword, pass_args=True))
     dp.add_handler(CommandHandler('reveal', reveal))
     dp.add_handler(CommandHandler('cancel', cancel))
+    dp.add_handler(CommandHandler('profile', profile_cmd))
     dp.add_handler(CommandHandler('help', help_cmd))
-    dp.add_handler(CallbackQueryHandler(button_handler))
 
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_group_button_text))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_group_message))
 
     init_db()
