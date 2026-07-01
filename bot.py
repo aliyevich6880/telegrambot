@@ -43,6 +43,7 @@ def build_start_keyboard():
         [InlineKeyboardButton('So‘zni ko‘rish', callback_data='show_word')],
         [InlineKeyboardButton('Keyingi so‘z', callback_data='next_word')],
         [InlineKeyboardButton('Kategoriya tanlash', callback_data='choose_category')],
+        [InlineKeyboardButton('Menyu', callback_data='menu')],
     ]
     return InlineKeyboardMarkup(buttons)
 
@@ -59,6 +60,16 @@ def build_word_keyboard():
     for word in DEFAULT_WORDS[:6]:
         buttons.append([InlineKeyboardButton(word, callback_data=f'word:{word}')])
     buttons.append([InlineKeyboardButton('Yana so‘zlar', callback_data='more_words')])
+    return InlineKeyboardMarkup(buttons)
+
+
+def build_group_keyboard():
+    buttons = [
+        [InlineKeyboardButton('👀 So‘zni ko‘rish', callback_data='show_word')],
+        [InlineKeyboardButton('⏭ Yangi so‘z', callback_data='next_word')],
+        [InlineKeyboardButton('📂 Kategoriya', callback_data='choose_category')],
+        [InlineKeyboardButton('📜 Menyu', callback_data='menu')],
+    ]
     return InlineKeyboardMarkup(buttons)
 
 
@@ -83,7 +94,11 @@ def host(update, context):
         update.message.reply_text("Iltimos bu buyruqni guruhda ishlating.")
         return
     games[chat.id] = {'host_id': user.id, 'category': None, 'word': None, 'revealed_user_id': None}
-    update.message.reply_text(f"{user.first_name} siz bu guruh uchun boshlovchi bo'ldingiz. Endi /category bilan toifa tanlang.")
+    update.message.reply_text(
+        f"{user.first_name} siz bu guruh uchun boshlovchi bo'ldingiz. Endi toifa tanlang.\n"
+        "Bot menyusi quyidagicha:",
+        reply_markup=build_group_keyboard()
+    )
 
 def category(update, context):
     chat = update.effective_chat
@@ -313,16 +328,20 @@ def button_handler(update, context):
     user = query.from_user
 
     if data == 'host':
-        query.message.reply_text("Guruhda /host bering va boshlovchi bo'ling.")
+        query.message.reply_text("Guruhda /host bering va boshlovchi bo'ling.", reply_markup=build_group_keyboard())
         return
     if data == 'show_word':
         query.message.reply_text(
-            "So'zni ko'rish uchun shaxsiy chatda /setword <so'z> yoki /useword <id> botiga yozing."
+            "So'zni ko'rish uchun shaxsiy chatda /setword <so'z> yoki /useword <id> botiga yozing.",
+            reply_markup=build_group_keyboard()
         )
         return
     if data == 'next_word':
         next_word = random.choice(DEFAULT_WORDS)
-        query.message.reply_text(f"Yangi so'z: {next_word}\nEndi shaxsiyda /setword {next_word} bering.")
+        query.message.reply_text(
+            f"Yangi so'z: {next_word}\nEndi shaxsiyda /setword {next_word} bering.",
+            reply_markup=build_group_keyboard()
+        )
         return
     if data == 'choose_category':
         query.message.reply_text("Kategoriya tanlash uchun quyidagilardan birini bering:", reply_markup=build_category_keyboard())
@@ -343,6 +362,12 @@ def button_handler(update, context):
         extra = DEFAULT_WORDS[6:12]
         buttons = [[InlineKeyboardButton(w, callback_data=f'word:{w}')] for w in extra]
         query.message.reply_text("Qo'shimcha so'zlar:", reply_markup=InlineKeyboardMarkup(buttons))
+        return
+    if data == 'menu':
+        query.message.reply_text(
+            "Asosiy menyu:",
+            reply_markup=build_start_keyboard()
+        )
         return
 
 
