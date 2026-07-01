@@ -180,6 +180,19 @@ def handle_group_button_text(update, context):
         )
         return True
 
+    if text == JOIN_BUTTON:
+        bot_username = context.bot.username or ''
+        if bot_username:
+            update.message.reply_text(
+                "Botni guruhga yoki kanalingizga qo‘shish uchun quyidagi tugmalardan foydalaning:",
+                reply_markup=build_join_keyboard(bot_username)
+            )
+        else:
+            update.message.reply_text(
+                "Botni guruhga yoki kanalingizga qo‘shish uchun @botusername orqali qidiring va uni qo‘shing."
+            )
+        return True
+
     if chat.id not in games:
         if chat.id in pending_hosts:
             update.message.reply_text("O'yin hali boshlanmagan. Avvalo /game buyrug'ini bering.")
