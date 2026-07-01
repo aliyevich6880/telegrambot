@@ -24,7 +24,11 @@ games = {}
 #   'category': str or None,
 #   'word': str or None,
 #   'revealed_user_id': int or None,
+#   'scores': dict,
+#   'rounds': int,
+#   'player_names': dict,
 # }
+pending_hosts = {}
 
 DEFAULT_WORDS = [
     'tova', 'pech', 'temir yol', 'ustoz', 'non pishirgich', 'aytmoq', 'ketmoq',
@@ -148,7 +152,10 @@ def handle_group_button_text(update, context):
         return False
 
     if chat.id not in games:
-        update.message.reply_text("Avvalo /host bering va boshlovchi bo'ling.")
+        if chat.id in pending_hosts:
+            update.message.reply_text("O'yin hali boshlanmagan. Avvalo /game buyrug'ini bering.")
+        else:
+            update.message.reply_text("Avvalo /host bering va boshlovchi bo'ling, so'ng /game buyrug'ini bering.")
         return True
 
     state = games[chat.id]
@@ -243,7 +250,10 @@ def handle_group_button_text(update, context):
 
     if text == PROFILE_BUTTON:
         if chat.id not in games:
-            update.message.reply_text("Hozircha o'yin boshlanmagan.")
+            if chat.id in pending_hosts:
+                update.message.reply_text("O'yin hali boshlanmagan. Avvalo /game buyrug'ini bering.")
+            else:
+                update.message.reply_text("Hozircha o'yin boshlanmagan.")
             return True
         host_name = state.get('player_names', {}).get(state.get('host_id'), 'Noma\'lum')
         update.message.reply_text(
@@ -268,7 +278,7 @@ def start_private(update, context):
     text = (
         "Salom! Bu So‘z o‘yini botiga xush kelibsiz.\n"
         "Sizga osonroq bo‘lishi uchun pastki tugmalar yordamida o‘ynash mumkin.\n"
-        "1) Guruhda /host bering va boshlovchi bo‘ling.\n"
+        "1) Guruhda /host bering va boshlovchi bo‘lib oling, so‘ng /game buyrug‘ini bering.\n"
         "2) Kategoriya tanlang yoki o‘zingiz kiritishingiz mumkin.\n"
         "3) Shu tugmalardan foydalanib so‘z tanlang yoki keyingi so‘zga o‘ting.\n"
         "4) Guruhda /reveal yordamida so‘zni tanlangan ishtirokchiga ko‘rsating.\n"
@@ -282,21 +292,52 @@ def host(update, context):
     if chat.type == 'private':
         update.message.reply_text("Iltimos bu buyruqni guruhda ishlating.")
         return
-    games[chat.id] = games.get(chat.id, {})
-    games[chat.id].update({
-        'host_id': user.id,
-        'category': games.get(chat.id, {}).get('category'),
-        'word': games.get(chat.id, {}).get('word'),
-        'revealed_user_id': None,
-        'scores': games.get(chat.id, {}).get('scores', {}),
-        'rounds': games.get(chat.id, {}).get('rounds', 0),
-        'player_names': games.get(chat.id, {}).get('player_names', {}),
-        'last_round_result': games.get(chat.id, {}).get('last_round_result'),
-    })
-    update_state_player_name(games[chat.id], user)
+    pending_hosts[chat.id] = user.id
     update.message.reply_text(
-        f"{user.first_name} siz bu guruh uchun boshlovchi bo'ldingiz. Endi bot egasi sizga maxfiy so'zni shaxsiyda yuborishi kerak.\n"
-        "Toifa tanlang yoki mavjud toifalardan tanlang.",
+        f"{user.first_name} siz guruh uchun boshlovchi bo'lishni xohlaysiz.\n"
+        "O'yinni boshlash uchun /game buyrug'ini bering.",
+        reply_markup=build_group_keyboard()
+    )
+
+
+def game(update, context):
+    chat = update.effective_chat
+    user = update.effective_user
+    if chat.type == 'private':
+        update.message.reply_text("Iltimos bu buyruqni guruhda ishlating.")
+        return
+    if chat.id in games:
+        update.message.reply_text(
+            "O'yin allaqachon boshlandi. /setword bilan so'zni o'rnating yoki /reveal bilan so'zni yuboring.",
+            reply_markup=build_group_keyboard()
+        )
+        return
+    if chat.id not in pending_hosts:
+        update.message.reply_text(
+            "Avvalo /host bering va boshlovchi bo'ling, so'ng /game buyrug'ini bering.",
+            reply_markup=build_group_keyboard()
+        )
+        return
+    if pending_hosts[chat.id] != user.id:
+        update.message.reply_text(
+            "Siz guruhdagi boshlovchi emassiz. Avvalo /host bering va boshlovchi bo'ling.",
+            reply_markup=build_group_keyboard()
+        )
+        return
+
+    games[chat.id] = {
+        'host_id': user.id,
+        'category': None,
+        'word': None,
+        'revealed_user_id': None,
+        'scores': {},
+        'rounds': 0,
+        'player_names': {},
+    }
+    update_state_player_name(games[chat.id], user)
+    pending_hosts.pop(chat.id, None)
+    update.message.reply_text(
+        f"{user.first_name} endi o'yin boshlandi. Toifa tanlang yoki /setword <so'z> yuborishni kuting.",
         reply_markup=build_group_keyboard()
     )
 
@@ -307,7 +348,10 @@ def category(update, context):
         update.message.reply_text("Iltimos guruhda toifa tanlang: /category <nom> yoki tugmachadan foydalaning.")
         return
     if chat.id not in games or games[chat.id].get('host_id') != user.id:
-        update.message.reply_text("Faqat boshlovchi toifani tanlashi mumkin. Avval /host bosing.")
+        if chat.id in pending_hosts:
+            update.message.reply_text("Avvalo /game buyrug'ini bering va o'yinni boshlang.")
+        else:
+            update.message.reply_text("Faqat boshlovchi toifani tanlashi mumkin. Avval /host bosing.")
         return
     if len(context.args) == 0:
         update.message.reply_text("Iltimos mavjud toifalardan tanlang: " + ", ".join(CATEGORIES))
@@ -334,7 +378,7 @@ def setword(update, context):
         update.message.reply_text("Faqat bot egasi so'z o'rnatishi mumkin.")
         return
     if not games:
-        update.message.reply_text("Hozir hech qanday guruhda o'yin boshlanmagan.")
+        update.message.reply_text("Hozir hech qanday guruhda o'yin boshlanmagan. Avvalo /host bering va /game buyrug'ini bering.")
         return
     target_chat_id = None
     if len(games) == 1:
@@ -512,7 +556,10 @@ def reveal(update, context):
         update.message.reply_text("Iltimos bu buyruqni guruhda yuboring.")
         return
     if chat.id not in games:
-        update.message.reply_text("Bu guruhda raund boshlanmagan. Avval /host bosing va owner so'zni shaxsiyda yuborsin.")
+        if chat.id in pending_hosts:
+            update.message.reply_text("Bu guruhda o'yin hali boshlanmagan. Avvalo /game buyrug'ini bering.")
+        else:
+            update.message.reply_text("Bu guruhda raund boshlanmagan. Avval /host bosing va owner so'zni shaxsiyda yuborsin.")
         return
     state = games[chat.id]
     if state.get('host_id') != user.id:
@@ -656,6 +703,7 @@ def handle_group_message(update, context):
         state['revealed_user_id'] = None
         update.message.reply_text(
             f"{state['last_round_result']}\nKeyingi round uchun boshlovchi {winner_name} bo'ldi. /setword yordamida yangi so'z o'rnating.\n{format_scoreboard(state)}",
+            reply_to_message_id=update.message.message_id,
             reply_markup=build_group_keyboard()
         )
         return
@@ -667,7 +715,8 @@ def help_cmd(update, context):
         "/removeword <id> - so'z o'chirish; /setword <so'z> - maxfiy so'z o'rnatish;\n"
         "/useword <id> - saqlangan so'zni tanlash (faqat bot egasi);\n"
         "/reveal - javobga yuborilgan xabarga so'zni ko'rsatish; /cancel - raundni bekor qilish;\n"
-        "/profile - o'yinchilar ballari va roundlar haqida ma'lumot."
+        "/profile - o'yinchilar ballari va roundlar haqida ma'lumot;\n"
+        "/game - guruh o'yinini boshlash uchun /host bilan bir xil."
     )
 
 def profile_cmd(update, context):
@@ -676,7 +725,10 @@ def profile_cmd(update, context):
         update.message.reply_text("/profile faqat guruhda ishlaydi.")
         return
     if chat.id not in games:
-        update.message.reply_text("Hozircha o'yin boshlanmagan.")
+        if chat.id in pending_hosts:
+            update.message.reply_text("O'yin hali boshlanmagan. Avvalo /game buyrug'ini bering.")
+        else:
+            update.message.reply_text("Hozircha o'yin boshlanmagan.")
         return
     state = games[chat.id]
     host_name = state.get('player_names', {}).get(state.get('host_id'), "Noma'lum")
@@ -693,6 +745,7 @@ def main():
 
     dp.add_handler(CommandHandler('start', start_private))
     dp.add_handler(CommandHandler('host', host))
+    dp.add_handler(CommandHandler('game', game))
     dp.add_handler(CommandHandler('category', category, pass_args=True))
     dp.add_handler(CommandHandler('setword', setword, pass_args=True))
     dp.add_handler(CommandHandler('useword', useword, pass_args=True))
