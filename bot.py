@@ -36,6 +36,7 @@ DEFAULT_WORDS = [
 DEFAULT_CATEGORIES = [
     'Taom', 'Meva', 'Tabiat', 'So‘zlar', 'Harakat', 'His-tuyg‘u', 'Ustoz', 'Uy', 'Ichimlik'
 ]
+CATEGORIES = DEFAULT_CATEGORIES.copy()
 
 def build_start_keyboard():
     buttons = [
@@ -50,8 +51,9 @@ def build_start_keyboard():
 
 def build_category_keyboard():
     buttons = []
-    for cat in DEFAULT_CATEGORIES:
+    for cat in CATEGORIES:
         buttons.append([InlineKeyboardButton(cat, callback_data=f'category:{cat}')])
+    buttons.append([InlineKeyboardButton('🔙 Orqaga', callback_data='back_main')])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -75,9 +77,19 @@ def build_group_keyboard():
         ['👀 So‘zni ko‘rish', '⏭ Yangi so‘z'],
         ['📂 Kategoriya', '📜 Menyu'],
         [JOIN_BUTTON, STOP_BUTTON],
-        [PROFILE_BUTTON, BACK_BUTTON],
+        [PROFILE_BUTTON],
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=False)
+
+
+def build_menu_keyboard():
+    buttons = [[BACK_BUTTON]]
+    return ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=True)
+
+
+def build_profile_keyboard():
+    buttons = [[BACK_BUTTON]]
+    return ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=True)
 
 
 def build_join_keyboard(bot_username):
@@ -135,21 +147,59 @@ def handle_group_button_text(update, context):
     if chat.type == 'private':
         return False
 
+    if chat.id not in games:
+        update.message.reply_text("Avvalo /host bering va boshlovchi bo'ling.")
+        return True
+
+    state = games[chat.id]
     if text == '👀 So‘zni ko‘rish':
+        if state.get('host_id') != user.id:
+            update.message.reply_text(
+                "So'zni faqat boshlovchi ko'rishi mumkin.",
+                reply_markup=build_group_keyboard()
+            )
+            return True
+        if not state.get('word'):
+            update.message.reply_text(
+                "So'z hali o'rnatilmagan. Owner shaxsiy chatda /setword <so'z> yuborishi kerak.",
+                reply_markup=build_group_keyboard()
+            )
+            return True
+        try:
+            context.bot.send_message(chat_id=user.id, text=f"Sizga maxfiy so'z: *{state['word']}*\nIltimos, uni guruhga yozmang.", parse_mode=ParseMode.MARKDOWN)
+        except Unauthorized:
+            update.message.reply_text(
+                "So'zni shaxsiyda yuborib bo'lmadi. Iltimos botga shaxsiyda /start yozing.",
+                reply_markup=build_group_keyboard()
+            )
+            return True
+        state['revealed_user_id'] = user.id
         update.message.reply_text(
-            "Faqat boshlovchi shaxsiy chatda /setword <so'z> yoki /useword <id> orqali so'z o'rnatishi mumkin.",
+            "So'z sizga shaxsiyda yuborildi. Endi boshqa foydalanuvchilar taxmin qilsin.",
             reply_markup=build_group_keyboard()
         )
         return True
 
     if text == '⏭ Yangi so‘z':
+        if state.get('host_id') != user.id:
+            update.message.reply_text(
+                "Yangi so'zni faqat boshlovchi so'rashi mumkin.",
+                reply_markup=build_group_keyboard()
+            )
+            return True
         update.message.reply_text(
-            "Yangi so'z uchun boshlovchi shaxsiy chatda /setword yoki /useword dan foydalanishi kerak.",
+            "Yangi so'z o'rnatish uchun bot egasi shaxsiy chatda /setword yoki /useword yuborishi kerak.",
             reply_markup=build_group_keyboard()
         )
         return True
 
     if text == '📂 Kategoriya':
+        if state.get('host_id') != user.id:
+            update.message.reply_text(
+                "Faqat boshlovchi toifani tanlashi mumkin.",
+                reply_markup=build_group_keyboard()
+            )
+            return True
         update.message.reply_text(
             "Toifa tanlang:",
             reply_markup=build_category_keyboard()
@@ -158,8 +208,8 @@ def handle_group_button_text(update, context):
 
     if text == '📜 Menyu':
         update.message.reply_text(
-            "Asosiy bot menyusi: Guruhda /host bering, so'ng /category yoki /setword bilan davom eting.",
-            reply_markup=build_group_keyboard()
+            "Menyu ochildi. Orqaga qaytish uchun tugmani bosing.",
+            reply_markup=build_menu_keyboard()
         )
         return True
 
@@ -195,13 +245,12 @@ def handle_group_button_text(update, context):
         if chat.id not in games:
             update.message.reply_text("Hozircha o'yin boshlanmagan.")
             return True
-        state = games[chat.id]
-        host_name = state.get('player_names', {}).get(state.get('host_id'), 'Noma'lum')
+        host_name = state.get('player_names', {}).get(state.get('host_id'), 'Noma\'lum')
         update.message.reply_text(
             f"Profil:\nBoshlovchi: {host_name}\n"
             f"Roundlar: {state.get('rounds', 0)}\n"
             f"{format_scoreboard(state)}",
-            reply_markup=build_group_keyboard()
+            reply_markup=build_profile_keyboard()
         )
         return True
 
@@ -230,25 +279,24 @@ def start_private(update, context):
 def host(update, context):
     chat = update.effective_chat
     user = update.effective_user
-    if OWNER_ID and user.id != OWNER_ID:
-        update.message.reply_text("Faqat bot egasi boshlovchi bo‘lishi mumkin.")
-        return
     if chat.type == 'private':
         update.message.reply_text("Iltimos bu buyruqni guruhda ishlating.")
         return
-    games[chat.id] = {
+    games[chat.id] = games.get(chat.id, {})
+    games[chat.id].update({
         'host_id': user.id,
-        'category': None,
-        'word': None,
+        'category': games.get(chat.id, {}).get('category'),
+        'word': games.get(chat.id, {}).get('word'),
         'revealed_user_id': None,
-        'scores': {},
-        'rounds': 0,
-        'player_names': {user.id: get_user_name(user)},
-        'last_round_result': None,
-    }
+        'scores': games.get(chat.id, {}).get('scores', {}),
+        'rounds': games.get(chat.id, {}).get('rounds', 0),
+        'player_names': games.get(chat.id, {}).get('player_names', {}),
+        'last_round_result': games.get(chat.id, {}).get('last_round_result'),
+    })
+    update_state_player_name(games[chat.id], user)
     update.message.reply_text(
-        f"{user.first_name} siz bu guruh uchun boshlovchi bo'ldingiz. Endi toifa tanlang.\n"
-        "Bot menyusi pastda paydo bo‘ladi.",
+        f"{user.first_name} siz bu guruh uchun boshlovchi bo'ldingiz. Endi bot egasi sizga maxfiy so'zni shaxsiyda yuborishi kerak.\n"
+        "Toifa tanlang yoki mavjud toifalardan tanlang.",
         reply_markup=build_group_keyboard()
     )
 
@@ -256,41 +304,54 @@ def category(update, context):
     chat = update.effective_chat
     user = update.effective_user
     if chat.type == 'private':
-        update.message.reply_text("Iltimos guruhda /category <nom> yoki tugmachadan foydalaning.")
+        update.message.reply_text("Iltimos guruhda toifa tanlang: /category <nom> yoki tugmachadan foydalaning.")
         return
     if chat.id not in games or games[chat.id].get('host_id') != user.id:
-        update.message.reply_text("Faqat boshlovchi toifani o'zgartirishi mumkin. Avval /host bosing.")
+        update.message.reply_text("Faqat boshlovchi toifani tanlashi mumkin. Avval /host bosing.")
         return
     if len(context.args) == 0:
-        update.message.reply_text("Iltimos toifa nomini yozing: /category film|hayvon|mashina ...")
+        update.message.reply_text("Iltimos mavjud toifalardan tanlang: " + ", ".join(CATEGORIES))
         return
     cat = ' '.join(context.args)
+    if cat not in CATEGORIES:
+        update.message.reply_text(
+            "Bunday toifa mavjud emas. Iltimos mavjud toifalardan tanlang."
+        )
+        return
     games[chat.id]['category'] = cat
     update.message.reply_text(
-        f"Toifa '{cat}' deb o'rnatildi. Endi boshlovchi shaxsiy chatda /setword <so'z> yuborsin.",
-        reply_markup=build_category_keyboard()
+        f"Toifa '{cat}' deb o'rnatildi. Endi bot egasi shaxsiy chatda /setword <so'z> yuborsin.",
+        reply_markup=build_group_keyboard()
     )
 
 def setword(update, context):
-    # must be in private chat and user must be host of some group
     chat = update.effective_chat
     user = update.effective_user
     if chat.type != 'private':
         update.message.reply_text("Iltimos bu buyruqni shaxsiy chatda yuboring: /setword <so'z>")
         return
-    # find the group where this user is host
+    if OWNER_ID and user.id != OWNER_ID:
+        update.message.reply_text("Faqat bot egasi so'z o'rnatishi mumkin.")
+        return
+    if not games:
+        update.message.reply_text("Hozir hech qanday guruhda o'yin boshlanmagan.")
+        return
     target_chat_id = None
-    for cid, state in games.items():
-        if state.get('host_id') == user.id:
-            target_chat_id = cid
-            break
-    if not target_chat_id:
-        update.message.reply_text("Siz hozir hech qanday guruhda boshlovchi emassiz. Avval guruhda /host bering yoki avval o'yinlarda g'olib bo'ling.")
+    if len(games) == 1:
+        target_chat_id = next(iter(games))
+    elif len(context.args) > 1 and context.args[0].isdigit():
+        target_chat_id = int(context.args[0])
+        context.args = context.args[1:]
+        if target_chat_id not in games:
+            update.message.reply_text("Noma'lum guruh. Iltimos to'g'ri chat_id ko'rsating.")
+            return
+    else:
+        update.message.reply_text("Agar bir nechta guruhda o'yin bo'lsa, iltimos /setword <chat_id> <so'z> yozing.")
         return
     if len(context.args) == 0:
         word = random.choice(DEFAULT_WORDS)
         update.message.reply_text(
-            f"Bazadan tasodifiy so'z tanlandi: {word}.\nEndi guruhda maqsadli foydalanuvchiga /reveal bilan yuboring.",
+            f"Bazadan tasodifiy so'z tanlandi: {word}.\nEndi host shaxsiy chatda /sozni_ko'rish tugmasini ishlatishi mumkin.",
             reply_markup=build_word_keyboard()
         )
     else:
@@ -298,7 +359,7 @@ def setword(update, context):
     games[target_chat_id]['word'] = word
     games[target_chat_id]['revealed_user_id'] = None
     update.message.reply_text(
-        f"So'z o'rnatildi va guruh ({target_chat_id}) uchun tayyor. Guruhda maqsadli foydalanuvchiga /reveal bilan so'zni ko'rsating.",
+        f"So'z guruh ({target_chat_id}) uchun o'rnatildi. Host shaxsiyda ✅ So'zni ko'rish tugmasini bosing.",
         reply_markup=build_word_keyboard()
     )
 
@@ -320,8 +381,8 @@ def addword(update, context):
     if OWNER_ID and user.id != OWNER_ID:
         update.message.reply_text("Faqat bot egasi so'z qo'shishi mumkin.")
         return
-    if chat.type == 'private':
-        update.message.reply_text("Iltimos guruhda /addword <so'z> yoki guruhga yuborilgan tugmalardan foydalaning.")
+    if chat.type != 'private':
+        update.message.reply_text("Iltimos shaxsiy chatda /addword <so'z> yuboring.")
         return
     if not context.args:
         update.message.reply_text("Iltimos so'zni yozing: /addword <so'z>")
@@ -334,6 +395,26 @@ def addword(update, context):
     wid = c.lastrowid
     conn.close()
     update.message.reply_text(f"So'z qo'shildi (id={wid}).")
+
+
+def addcategory(update, context):
+    chat = update.effective_chat
+    user = update.effective_user
+    if OWNER_ID and user.id != OWNER_ID:
+        update.message.reply_text("Faqat bot egasi yangi kategoriya qo'shishi mumkin.")
+        return
+    if chat.type != 'private':
+        update.message.reply_text("Iltimos shaxsiy chatda /addcategory <nom> yuboring.")
+        return
+    if not context.args:
+        update.message.reply_text("Iltimos kategoriya nomini yozing: /addcategory <nom>")
+        return
+    cat = ' '.join(context.args).strip()
+    if cat in CATEGORIES:
+        update.message.reply_text("Bu toifa allaqachon mavjud.")
+        return
+    CATEGORIES.append(cat)
+    update.message.reply_text(f"Yangi toifa qo'shildi: {cat}")
 
 def listwords(update, context):
     chat = update.effective_chat
@@ -385,25 +466,31 @@ def removeword(update, context):
 def useword(update, context):
     chat = update.effective_chat
     user = update.effective_user
+    if OWNER_ID and user.id != OWNER_ID:
+        update.message.reply_text("Faqat bot egasi saqlangan so'zni tanlashi mumkin.")
+        return
     if chat.type != 'private':
         update.message.reply_text("Iltimos shaxsiyda /useword <id> bilan so'zni tanlang.")
         return
     if not context.args:
-        update.message.reply_text("Iltimos so'z id sini bering: /useword <id> — bu siz host bo‘lgan guruh uchun ishlaydi.")
+        update.message.reply_text("Iltimos so'z id sini bering: /useword <id> — bu siz owner bo'lib ko'rsatilgan guruh uchun ishlaydi.")
+        return
+    target_chat_id = None
+    if len(games) == 1:
+        target_chat_id = next(iter(games))
+    elif len(context.args) > 1 and context.args[0].isdigit():
+        target_chat_id = int(context.args[0])
+        context.args = context.args[1:]
+        if target_chat_id not in games:
+            update.message.reply_text("Noma'lum guruh. Iltimos to'g'ri chat_id ko'rsating.")
+            return
+    else:
+        update.message.reply_text("Agar bir nechta guruhda o'yin bo'lsa, iltimos /useword <chat_id> <id> yozing.")
         return
     try:
         wid = int(context.args[0])
     except:
         update.message.reply_text("Id butun son bo'lishi kerak.")
-        return
-    # find the group where this user is host
-    target_chat_id = None
-    for cid, state in games.items():
-        if state.get('host_id') == user.id:
-            target_chat_id = cid
-            break
-    if not target_chat_id:
-        update.message.reply_text("Siz hech qanday guruhda boshlovchi emassiz.")
         return
     conn = sqlite3.connect('words.db')
     c = conn.cursor()
@@ -422,34 +509,29 @@ def reveal(update, context):
     chat = update.effective_chat
     user = update.effective_user
     if chat.type == 'private':
-        update.message.reply_text("Iltimos bu buyruqni guruhda, maqsadli foydalanuvchining xabariga javoban yuboring: javobga /reveal")
+        update.message.reply_text("Iltimos bu buyruqni guruhda yuboring.")
         return
     if chat.id not in games:
-        update.message.reply_text("Bu guruhda raund boshlanmagan. Avval /host bosing va /setword yuboring.")
+        update.message.reply_text("Bu guruhda raund boshlanmagan. Avval /host bosing va owner so'zni shaxsiyda yuborsin.")
         return
     state = games[chat.id]
     if state.get('host_id') != user.id:
         update.message.reply_text("Faqat boshlovchi bu buyruqni bajarishi mumkin.")
         return
     if not state.get('word'):
-        update.message.reply_text("So'z hali o'rnatilmagan. Boshlovchi shaxsiy chatda /setword <so'z> yuborishi kerak.")
+        update.message.reply_text("So'z hali o'rnatilmagan. Owner shaxsiy chatda /setword <so'z> yuborishi kerak.")
         return
-    if state.get('revealed_user_id'):
-        update.message.reply_text("Allaqachon bir foydalanuvchiga so'z ko'rsatilgan. Raundni bekor qilish uchun /cancel bering.")
+    if state.get('revealed_user_id') == user.id:
+        update.message.reply_text("Sizga so'z allaqachon yuborilgan.")
         return
-    # We expect /reveal as a reply to the target user's message
-    if not update.message.reply_to_message:
-        update.message.reply_text("Iltimos, maqsadli foydalanuvchining xabariga javoban /reveal bering.")
-        return
-    target_user = update.message.reply_to_message.from_user
     try:
-        context.bot.send_message(chat_id=target_user.id, text=(f"Sizga maxfiy so'z: *{state['word']}*\n"
-                                                              "Iltimos bu so'zni guruhga yozmang — faqat tushuntirib bering."), parse_mode=ParseMode.MARKDOWN)
+        context.bot.send_message(chat_id=user.id, text=(f"Sizga maxfiy so'z: *{state['word']}*\n"
+                                                         "Iltimos bu so'zni guruhga yozmang — faqat tushuntirib bering."), parse_mode=ParseMode.MARKDOWN)
     except Unauthorized:
-        update.message.reply_text(f"Foydalanuvchiga shaxsiy xabar yuborib bo'lmadi. Iltimos @{target_user.username} botni shaxsiyda ishga tushirsin.")
+        update.message.reply_text("Sizga shaxsiy xabar yuborib bo'lmadi. Iltimos botga shaxsiyda /start yozing.")
         return
-    state['revealed_user_id'] = target_user.id
-    update.message.reply_text(f"So'z @{target_user.username} ga yuborildi. Endi u tushuntiradi va boshqalar taxmin qiladi.")
+    state['revealed_user_id'] = user.id
+    update.message.reply_text("So'z sizga shaxsiyda yuborildi. Endi boshqa foydalanuvchilar taxmin qilsin.")
 
 def cancel(update, context):
     chat = update.effective_chat
@@ -498,8 +580,24 @@ def button_handler(update, context):
         return
     if data.startswith('category:'):
         cat = data.split(':', 1)[1]
+        chat = query.message.chat
+        state = games.get(chat.id)
+        if not state or state.get('host_id') != query.from_user.id:
+            query.message.reply_text(
+                "Faqat boshlovchi kategoriya tanlashi mumkin.",
+                reply_markup=build_group_keyboard()
+            )
+            return
+        if cat not in CATEGORIES:
+            query.message.reply_text(
+                "Bunday toifa mavjud emas.",
+                reply_markup=build_group_keyboard()
+            )
+            return
+        state['category'] = cat
         query.message.reply_text(
-            f"Siz tanladingiz: {cat}. Guruhda /category {cat} bering yoki boshqacha toifa yozing."
+            f"Toifa '{cat}' tanlandi. Endi owner shaxsiy chatda /setword <so'z> yuborsin.",
+            reply_markup=build_group_keyboard()
         )
         return
     if data.startswith('word:'):
@@ -512,6 +610,12 @@ def button_handler(update, context):
         extra = DEFAULT_WORDS[6:12]
         buttons = [[InlineKeyboardButton(w, callback_data=f'word:{w}')] for w in extra]
         query.message.reply_text("Qo'shimcha so'zlar:", reply_markup=InlineKeyboardMarkup(buttons))
+        return
+    if data == 'back_main':
+        query.message.reply_text(
+            "Asosiy menyuga qaytildi.",
+            reply_markup=build_group_keyboard()
+        )
         return
     if data == 'menu':
         query.message.reply_text(
@@ -559,9 +663,9 @@ def handle_group_message(update, context):
 def help_cmd(update, context):
     update.message.reply_text(
         "Buyruqlar: /host - boshlovchi bo'ling; /category <nom> - toifa;\n"
-        "/addword <so'z> - so'z qo'shish; /listwords - so'zlarni ko'rish;\n"
+        "/addcategory <nom> - yangi toifa qo'shish (faqat bot egasi); /addword <so'z> - so'z qo'shish; /listwords - so'zlarni ko'rish;\n"
         "/removeword <id> - so'z o'chirish; /setword <so'z> - maxfiy so'z o'rnatish;\n"
-        "/useword <id> - saqlangan so'zni tanlash (boshlovchi uchun);\n"
+        "/useword <id> - saqlangan so'zni tanlash (faqat bot egasi);\n"
         "/reveal - javobga yuborilgan xabarga so'zni ko'rsatish; /cancel - raundni bekor qilish;\n"
         "/profile - o'yinchilar ballari va roundlar haqida ma'lumot."
     )
@@ -575,7 +679,7 @@ def profile_cmd(update, context):
         update.message.reply_text("Hozircha o'yin boshlanmagan.")
         return
     state = games[chat.id]
-    host_name = state.get('player_names', {}).get(state.get('host_id'), 'Noma'lum')
+    host_name = state.get('player_names', {}).get(state.get('host_id'), "Noma'lum")
     update.message.reply_text(
         f"Profil:\nBoshlovchi: {host_name}\n"
         f"Roundlar: {state.get('rounds', 0)}\n"
@@ -592,6 +696,8 @@ def main():
     dp.add_handler(CommandHandler('category', category, pass_args=True))
     dp.add_handler(CommandHandler('setword', setword, pass_args=True))
     dp.add_handler(CommandHandler('useword', useword, pass_args=True))
+    dp.add_handler(CommandHandler('addword', addword, pass_args=True))
+    dp.add_handler(CommandHandler('addcategory', addcategory, pass_args=True))
     dp.add_handler(CommandHandler('reveal', reveal))
     dp.add_handler(CommandHandler('cancel', cancel))
     dp.add_handler(CommandHandler('profile', profile_cmd))
