@@ -218,13 +218,14 @@ def handle_group_button_text(update, context):
 def start_private(update, context):
     text = (
         "Salom! Bu So‘z o‘yini botiga xush kelibsiz.\n"
-        "Sizga osonroq bo‘lishi uchun quyidagi tugmalar yordamida o‘ynash mumkin.\n"
+        "Sizga osonroq bo‘lishi uchun pastki tugmalar yordamida o‘ynash mumkin.\n"
         "1) Guruhda /host bering va boshlovchi bo‘ling.\n"
         "2) Kategoriya tanlang yoki o‘zingiz kiritishingiz mumkin.\n"
         "3) Shu tugmalardan foydalanib so‘z tanlang yoki keyingi so‘zga o‘ting.\n"
         "4) Guruhda /reveal yordamida so‘zni tanlangan ishtirokchiga ko‘rsating.\n"
+        "5) Botni guruh yoki kanalingizga qo‘shish uchun ➕ Qo‘shish tugmasini bosing.\n"
     )
-    update.message.reply_text(text, reply_markup=build_start_keyboard())
+    update.message.reply_text(text, reply_markup=build_group_keyboard())
 
 def host(update, context):
     chat = update.effective_chat
@@ -515,7 +516,7 @@ def button_handler(update, context):
     if data == 'menu':
         query.message.reply_text(
             "Asosiy menyu:",
-            reply_markup=build_start_keyboard()
+            reply_markup=build_group_keyboard()
         )
         return
 
