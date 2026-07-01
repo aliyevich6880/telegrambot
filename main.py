@@ -1,16 +1,49 @@
 import logging
 
+from telegram import BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
 import database
 import handlers
-from config import TOKEN
+from config import TOKEN, OWNER_ID
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+
+PUBLIC_COMMANDS = [
+    BotCommand('start', "Botni ishga tushirish"),
+    BotCommand('game', "Guruhda yangi o'yin boshlash"),
+    BotCommand('score', "Joriy reytingni ko'rish"),
+    BotCommand('stop', "O'yinni to'xtatish"),
+    BotCommand('help', "Yordam"),
+]
+
+OWNER_ONLY_COMMANDS = [
+    BotCommand('settings', "Sozlamalar: so'z/kategoriya qo'shish menyusi"),
+    BotCommand('addcategory', "Yangi kategoriya qo'shish"),
+    BotCommand('addword', "So'z qo'shish"),
+    BotCommand('listwords', "Saqlangan so'zlarni ko'rish"),
+    BotCommand('removeword', "So'zni o'chirish"),
+]
+
+
+def setup_bot_commands(bot):
+    """Registers the '/' command menu: everyone sees the public commands,
+    the owner additionally sees the word-bank management commands."""
+    bot.set_my_commands(PUBLIC_COMMANDS, scope=BotCommandScopeDefault())
+    if OWNER_ID:
+        try:
+            bot.set_my_commands(
+                PUBLIC_COMMANDS + OWNER_ONLY_COMMANDS,
+                scope=BotCommandScopeChat(chat_id=OWNER_ID)
+            )
+        except Exception as e:
+            # This fails harmlessly if the owner hasn't started a private chat with the bot yet.
+            logger.warning("Owner uchun buyruqlar ro'yxatini o'rnatib bo'lmadi: %s", e)
 
 
 def main():
@@ -54,6 +87,7 @@ def main():
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handlers.handle_private_text), group=1)
 
     database.init_db()
+    setup_bot_commands(updater.bot)
     print("Bot ishga tushmoqda...")
     updater.start_polling()
     updater.idle()
