@@ -98,8 +98,6 @@ def cmd_settings(update, context):
     if chat.type != 'private':
         update.message.reply_text("Iltimos /settings buyrug'ini botga shaxsiy chatda yuboring.")
         return
-    PENDING_ADDWORD.pop(user.id, None)
-    PENDING_ADDCATEGORY.pop(user.id, None)
     update.message.reply_text("⚙️ Sozlamalar:", reply_markup=settings_menu_keyboard())
 
 
@@ -109,8 +107,6 @@ def cb_settings_menu(update, context):
     if not is_owner(user):
         query.answer("Faqat bot egasi sozlamalarga kira oladi.", show_alert=True)
         return
-    PENDING_ADDWORD.pop(user.id, None)
-    PENDING_ADDCATEGORY.pop(user.id, None)
     query.answer()
     query.edit_message_text("⚙️ Sozlamalar:", reply_markup=settings_menu_keyboard())
 
