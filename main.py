@@ -75,11 +75,9 @@ def main():
     # /settings menu callbacks (owner only)
     dp.add_handler(CallbackQueryHandler(handlers.cb_settings_menu, pattern='^settings_menu$'))
     dp.add_handler(CallbackQueryHandler(handlers.cb_aw_start, pattern='^aw_start$'))
-    dp.add_handler(CallbackQueryHandler(handlers.cb_aw_choose_group, pattern='^awgroup:'))
     dp.add_handler(CallbackQueryHandler(handlers.cb_aw_choose_category, pattern='^awcat:'))
     dp.add_handler(CallbackQueryHandler(handlers.cb_ac_start, pattern='^ac_start$'))
     dp.add_handler(CallbackQueryHandler(handlers.cb_lw_start, pattern='^lw_start$'))
-    dp.add_handler(CallbackQueryHandler(handlers.cb_lw_choose_group, pattern='^lwgroup:'))
 
     # word guessing in group chats
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handlers.handle_group_text), group=0)

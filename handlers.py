@@ -122,40 +122,7 @@ def cb_aw_start(update, context):
         query.answer("Faqat bot egasi so'z qo'shishi mumkin.", show_alert=True)
         return
 
-    groups = active_group_titles(context)
-    if not groups:
-        query.answer()
-        query.edit_message_text(
-            "Hozircha faol o'yin topilmadi.\nAvval kerakli guruhda /game bering, "
-            "so'ng /settings orqali qaytib so'z qo'shing.",
-            reply_markup=settings_menu_keyboard()
-        )
-        return
-
-    query.answer()
-    if len(groups) == 1:
-        chat_id = groups[0][0]
-        PENDING_ADDWORD[user.id] = {'chat_id': chat_id}
-        categories = database.get_categories()
-        query.edit_message_text(
-            "📂 Qaysi kategoriyaga so'z qo'shamiz?",
-            reply_markup=category_keyboard(categories, callback_prefix='awcat:', back_target='settings_menu')
-        )
-    else:
-        query.edit_message_text(
-            "Qaysi guruh uchun so'z qo'shamiz?",
-            reply_markup=group_select_keyboard(groups, callback_prefix='awgroup:')
-        )
-
-
-def cb_aw_choose_group(update, context):
-    query = update.callback_query
-    user = query.from_user
-    if not is_owner(user):
-        query.answer("Faqat bot egasi so'z qo'shishi mumkin.", show_alert=True)
-        return
-    chat_id = int(query.data.split(':', 1)[1])
-    PENDING_ADDWORD[user.id] = {'chat_id': chat_id}
+    PENDING_ADDWORD[user.id] = {}
     query.answer()
     categories = database.get_categories()
     query.edit_message_text(
@@ -200,47 +167,17 @@ def cb_lw_start(update, context):
         query.answer("Faqat bot egasi so'zlarni ko'ra oladi.", show_alert=True)
         return
 
-    groups = active_group_titles(context)
-    if not groups:
-        query.answer()
-        query.edit_message_text(
-            "Hozircha faol o'yin topilmadi.",
-            reply_markup=settings_menu_keyboard()
-        )
-        return
-
     query.answer()
-    if len(groups) == 1:
-        _show_word_list(query, groups[0][0], groups[0][1])
-    else:
-        query.edit_message_text(
-            "Qaysi guruh so'zlarini ko'rsam?",
-            reply_markup=group_select_keyboard(groups, callback_prefix='lwgroup:')
-        )
+    _show_word_list(query)
 
 
-def cb_lw_choose_group(update, context):
-    query = update.callback_query
-    user = query.from_user
-    if not is_owner(user):
-        query.answer("Faqat bot egasi so'zlarni ko'ra oladi.", show_alert=True)
-        return
-    chat_id = int(query.data.split(':', 1)[1])
-    query.answer()
-    try:
-        title = context.bot.get_chat(chat_id).title or str(chat_id)
-    except Exception:
-        title = str(chat_id)
-    _show_word_list(query, chat_id, title)
-
-
-def _show_word_list(query, chat_id, title):
-    rows = database.list_words(chat_id)
+def _show_word_list(query):
+    rows = database.list_words()
     if not rows:
-        text = f"«{title}» uchun hech qanday so'z qo'shilmagan."
+        text = "Hozircha hech qanday so'z qo'shilmagan."
     else:
         lines = [f"{r[0]} [{r[1] or 'NoCategory'}]: {r[2]}" for r in rows]
-        text = f"«{title}» so'zlari:\n" + "\n".join(lines)
+        text = "So'zlar ro'yxati:\n" + "\n".join(lines)
     query.edit_message_text(text[:4000], reply_markup=settings_menu_keyboard())
 
 
@@ -260,8 +197,7 @@ def handle_private_text(update, context):
         category = pending.get('category')
         if not category:
             return  # still waiting on category button
-        chat_id = pending['chat_id']
-        wid = database.add_word(chat_id, text, user.id, category)
+        wid = database.add_word(text, user.id, category)
         PENDING_ADDWORD.pop(user.id, None)
         update.message.reply_text(
             f"✅ So'z qo'shildi (id={wid}), kategoriya: {category}.",
@@ -395,7 +331,7 @@ def cb_show_word(update, context):
         return
 
     if not game.word:
-        word, _source = database.pick_random_word(chat.id, game.category, game.used_words)
+        word, _source = database.pick_random_word(game.category, game.used_words)
         game.word = word
 
     query.answer(f"🤫 So'z: {game.word}\n\nBuni guruhga yozmang!", show_alert=True)
@@ -411,7 +347,7 @@ def cb_next_word(update, context):
         query.answer("Faqat boshlovchi yangi so'z so'rashi mumkin.", show_alert=True)
         return
 
-    word, _source = database.pick_random_word(chat.id, game.category, game.used_words)
+    word, _source = database.pick_random_word(game.category, game.used_words)
     game.word = word
     query.answer(f"🤫 Yangi so'z: {word}\n\nBuni guruhga yozmang!", show_alert=True)
 
@@ -556,35 +492,27 @@ def cmd_addword(update, context):
             "Bunday toifa yo'q. Iltimos mavjud kategoriyalardan birini tanlang: " + ", ".join(categories)
         )
         return
-    wid = database.add_word(chat.id, word, user.id, category)
+    wid = database.add_word(word, user.id, category)
     update.message.reply_text(f"So'z qo'shildi (id={wid}) kategoriya: {category}.")
 
 
 def cmd_listwords(update, context):
     user = update.effective_user
-    chat = update.effective_chat
     if not is_owner(user):
         update.message.reply_text("Faqat bot egasi saqlangan so'zlarni ko'rishi mumkin.")
         return
-    if chat.type == 'private':
-        update.message.reply_text("Iltimos guruhda /listwords buyrug'ini bering.")
-        return
-    rows = database.list_words(chat.id)
+    rows = database.list_words()
     if not rows:
         update.message.reply_text("Hech qanday so'z qo'shilmagan.")
         return
     lines = [f"{r[0]} [{r[1] or 'NoCategory'}]: {r[2]}" for r in rows]
-    update.message.reply_text("\n".join(lines))
+    update.message.reply_text("\n".join(lines)[:4000])
 
 
 def cmd_removeword(update, context):
     user = update.effective_user
-    chat = update.effective_chat
     if not is_owner(user):
         update.message.reply_text("Faqat bot egasi so'zni o'chirishi mumkin.")
-        return
-    if chat.type == 'private':
-        update.message.reply_text("Iltimos guruhda /removeword <id> qiling.")
         return
     if not context.args:
         update.message.reply_text("Iltimos id ni ko'rsating: /removeword <id>")
@@ -594,7 +522,7 @@ def cmd_removeword(update, context):
     except ValueError:
         update.message.reply_text("Id butun son bo'lishi kerak.")
         return
-    if database.remove_word(chat.id, wid):
+    if database.remove_word(wid):
         update.message.reply_text("So'z o'chirildi.")
     else:
         update.message.reply_text("Bunday id topilmadi.")
