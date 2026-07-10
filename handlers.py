@@ -128,12 +128,15 @@ def cb_aw_start(update, context):
 
 
 def cb_aw_choose_category(update, context):
+    print("cb_aw_choose_category called")
+    print("user:", update.callback_query.from_user)
+    print("pending:", PENDING_ADDWORD)
     query = update.callback_query
     user = query.from_user
     if not is_owner(user):
         query.answer("Faqat bot egasi so'z qo'shishi mumkin.", show_alert=True)
         return
-    pending = PENDING_ADDWORD.get(user.id)
+    pending = PENDING_ADDWORD.get()
     if not pending:
         query.answer("Sessiya tugagan. /settings dan qaytadan boshlang.", show_alert=True)
         return
